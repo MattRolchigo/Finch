@@ -46,7 +46,9 @@ class Solver
     double liquidus_;
     double rho_cp_;
     double rho_Lf_by_dT_;
-    double k_by_dx2_;
+    double inv_dx2_;
+    double k_0_;
+    double k_T_;
 
     // heat source parameters
     double power_;
@@ -77,7 +79,10 @@ class Solver
 
         rho_Lf_by_dT_ = rho * Lf / ( liquidus_ - solidus_ );
 
-        k_by_dx2_ = ( db.properties.thermal_conductivity ) / ( dx * dx );
+        inv_dx2_ = 1.0 / ( dx * dx );
+
+        k_0_ = db.properties.thermal_conductivity_0;
+        k_T_ = db.properties.thermal_conductivity_T;
 
         // initialize beam position
         for ( std::size_t d = 0; d < 3; ++d )
@@ -136,15 +141,41 @@ class Solver
     KOKKOS_INLINE_FUNCTION
     void operator()( HostTag tag, const int i, const int j, const int k ) const
     {
-        double x = T0_( i, j, k, 0 );
+        // First nearest neighbor stencil for cell at i,j,k: temperature and
+        // thermal conductivity
+        const double temp_local = T0_( i, j, k, 0 );
+        const double temp_px = T0_( i + 1, j, k, 0 );
+        const double temp_nx = T0_( i - 1, j, k, 0 );
+        const double temp_py = T0_( i, j + 1, k, 0 );
+        const double temp_ny = T0_( i, j - 1, k, 0 );
+        const double temp_pz = T0_( i, j, k + 1, 0 );
+        const double temp_nz = T0_( i, j, k - 1, 0 );
 
-        double dt_by_rho_cp = ( x >= solidus_ && x <= liquidus_ )
-                                  ? dt_ / ( rho_cp_ + rho_Lf_by_dT_ )
-                                  : dt_ / ( rho_cp_ );
+        const double kappa_local = kappa_of_temperature( temp_local );
+        const double kappa_px = kappa_of_temperature( temp_px );
+        const double kappa_nx = kappa_of_temperature( temp_nx );
+        const double kappa_py = kappa_of_temperature( temp_py );
+        const double kappa_ny = kappa_of_temperature( temp_ny );
+        const double kappa_pz = kappa_of_temperature( temp_pz );
+        const double kappa_nz = kappa_of_temperature( temp_nz );
 
-        double rhs = laplacian( i, j, k ) + source( tag, i, j, k );
+        double dt_by_rho_cp =
+            ( temp_local >= solidus_ && temp_local <= liquidus_ )
+                ? dt_ / ( rho_cp_ + rho_Lf_by_dT_ )
+                : dt_ / ( rho_cp_ );
 
-        T_( i, j, k, 0 ) = x + rhs * dt_by_rho_cp;
+        const double laplacian_x = laplacian_k(
+            temp_local, temp_px, temp_nx, kappa_local, kappa_px, kappa_nx );
+        const double laplacian_y = laplacian_k(
+            temp_local, temp_py, temp_ny, kappa_local, kappa_py, kappa_ny );
+        const double laplacian_z = laplacian_k(
+            temp_local, temp_pz, temp_nz, kappa_local, kappa_pz, kappa_nz );
+
+        const double rhs =
+            ( laplacian_x + laplacian_y + laplacian_z ) * inv_dx2_ +
+            source( tag, i, j, k );
+
+        T_( i, j, k, 0 ) = temp_local + rhs * dt_by_rho_cp;
     }
 
     // Device tagged version of the temperature solver
@@ -152,26 +183,68 @@ class Solver
     void operator()( DeviceTag tag, const int i, const int j,
                      const int k ) const
     {
-        double x = T0_( i, j, k, 0 );
+        // First nearest neighbor stencil for cell at i,j,k: temperature and
+        // thermal conductivity
+        const double temp_local = T0_( i, j, k, 0 );
+        const double temp_px = T0_( i + 1, j, k, 0 );
+        const double temp_nx = T0_( i - 1, j, k, 0 );
+        const double temp_py = T0_( i, j + 1, k, 0 );
+        const double temp_ny = T0_( i, j - 1, k, 0 );
+        const double temp_pz = T0_( i, j, k + 1, 0 );
+        const double temp_nz = T0_( i, j, k - 1, 0 );
+
+        const double kappa_local = kappa_of_temperature( temp_local );
+        const double kappa_px = kappa_of_temperature( temp_px );
+        const double kappa_nx = kappa_of_temperature( temp_nx );
+        const double kappa_py = kappa_of_temperature( temp_py );
+        const double kappa_ny = kappa_of_temperature( temp_ny );
+        const double kappa_pz = kappa_of_temperature( temp_pz );
+        const double kappa_nz = kappa_of_temperature( temp_nz );
 
         double dt_by_rho_cp =
-            dt_ / ( rho_cp_ +
-                    ( x >= solidus_ ) * ( x <= liquidus_ ) * rho_Lf_by_dT_ );
+            dt_ / ( rho_cp_ + ( temp_local >= solidus_ ) *
+                                  ( temp_local <= liquidus_ ) * rho_Lf_by_dT_ );
 
-        double rhs = laplacian( i, j, k ) + source( tag, i, j, k );
+        const double laplacian_x = laplacian_k(
+            temp_local, temp_px, temp_nx, kappa_local, kappa_px, kappa_nx );
+        const double laplacian_y = laplacian_k(
+            temp_local, temp_py, temp_ny, kappa_local, kappa_py, kappa_ny );
+        const double laplacian_z = laplacian_k(
+            temp_local, temp_pz, temp_nz, kappa_local, kappa_pz, kappa_nz );
 
-        T_( i, j, k, 0 ) = x + rhs * dt_by_rho_cp;
+        const double rhs =
+            ( laplacian_x + laplacian_y + laplacian_z ) * inv_dx2_ +
+            source( tag, i, j, k );
+
+        T_( i, j, k, 0 ) = temp_local + rhs * dt_by_rho_cp;
     }
 
-    // First-order centered space laplacian stencil
+    // Get temperature-dependent thermal conductivity
     KOKKOS_INLINE_FUNCTION
-    auto laplacian( const int i, const int j, const int k ) const
+    auto kappa_of_temperature( const double temp_local ) const
     {
-        return ( T0_( i - 1, j, k, 0 ) + T0_( i + 1, j, k, 0 ) +
-                 T0_( i, j - 1, k, 0 ) + T0_( i, j + 1, k, 0 ) +
-                 T0_( i, j, k - 1, 0 ) + T0_( i, j, k + 1, 0 ) -
-                 6.0 * T0_( i, j, k, 0 ) ) *
-               k_by_dx2_;
+        return k_0_ + k_T_ * temp_local;
+    }
+
+    // Get harmonic average of two values
+    KOKKOS_INLINE_FUNCTION
+    auto harmonic_mean( const double x1, const double x2 ) const
+    {
+        return 2.0 * x1 * x2 / ( x1 + x2 );
+    }
+
+    // First-order centered space laplacian stencil for one direction -
+    // temperature-dependent thermal conductivity
+    KOKKOS_INLINE_FUNCTION
+    auto laplacian_k( const double temp_local, const double temp_positive,
+                      const double temp_negative, const double kappa_local,
+                      const double kappa_positive,
+                      const double kappa_negative ) const
+    {
+        return ( harmonic_mean( kappa_local, kappa_positive ) *
+                     ( temp_positive - temp_local ) -
+                 harmonic_mean( kappa_local, kappa_negative ) *
+                     ( temp_local - temp_negative ) );
     }
 
     // Normalized weight for the gaussian source term: x in exp(-x)
