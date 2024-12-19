@@ -91,9 +91,11 @@ struct Properties
 {
     double density;
     double specific_heat;
-    double thermal_conductivity_0;
-    double thermal_conductivity_T;
-    double thermal_diffusivity;
+    double thermal_conductivity_solid_0;
+    double thermal_conductivity_solid_T;
+    double thermal_conductivity_liquid_0;
+    double thermal_conductivity_liquid_T;
+    double vaporization_temperature;
     double latent_heat;
     double solidus;
     double liquidus;
@@ -212,9 +214,12 @@ class Inputs
         Info << "Properties:" << std::endl;
         Info << "  Density: " << properties.density << std::endl;
         Info << "  Specific Heat: " << properties.specific_heat << std::endl;
-        Info << "  Thermal Conductivity: " << properties.thermal_conductivity_0
-             << " + " << properties.thermal_conductivity_T << " * T"
-             << std::endl;
+        Info << "  Thermal Conductivity, Solid: "
+             << properties.thermal_conductivity_solid_0 << " + "
+             << properties.thermal_conductivity_solid_T << " * T" << std::endl;
+        Info << "  Thermal Conductivity, Liquid: "
+             << properties.thermal_conductivity_liquid_0 << " + "
+             << properties.thermal_conductivity_liquid_T << " * T" << std::endl;
         Info << "  Latent Heat: " << properties.latent_heat << std::endl;
         Info << "  Solidus: " << properties.solidus << std::endl;
         Info << "  Liquidus: " << properties.liquidus << std::endl;
@@ -266,8 +271,7 @@ class Inputs
         return filename_s;
     }
 
-    void parseInputFile( MPI_Comm comm, const std::string filename,
-                         const double est_max_temperature = 5000.0 )
+    void parseInputFile( MPI_Comm comm, const std::string filename )
     {
         readInput( filename );
 
@@ -276,8 +280,9 @@ class Inputs
         // create auxiliary properties - estimate time step based on a maximum
         // temperature and the parsed thermal conducitivity values
         const double est_max_thermal_diffusivity =
-            ( properties.thermal_conductivity_0 +
-              properties.thermal_conductivity_T * est_max_temperature ) /
+            ( properties.thermal_conductivity_liquid_0 +
+              properties.thermal_conductivity_liquid_T *
+                  properties.vaporization_temperature ) /
             ( properties.density * properties.specific_heat );
 
         time.time_step = ( time.Co * space.cell_size * space.cell_size ) /
@@ -341,20 +346,35 @@ class Inputs
         properties.density = db["properties"]["density"];
         properties.specific_heat = db["properties"]["specific_heat"];
         // Thermal conductvity as a function of temperature in the form a + b *
-        // Temperature. If only one value is given, a fixed thermal conductivity
-        // is used
-        if ( db["properties"]["thermal_conductivity"].size() > 1 )
+        // Temperature for solid and liquid. If only one value is given, fixed
+        // thermal conductivity for both phases are used
+        if ( db["properties"].contains( "thermal_conductivity_solid" ) &&
+             db["properties"].contains( "thermal_conductivity_liquid" ) )
         {
-            properties.thermal_conductivity_0 =
-                db["properties"]["thermal_conductivity"][0];
-            properties.thermal_conductivity_T =
-                db["properties"]["thermal_conductivity"][1];
+            properties.thermal_conductivity_solid_0 =
+                db["properties"]["thermal_conductivity_solid"][0];
+            properties.thermal_conductivity_solid_T =
+                db["properties"]["thermal_conductivity_solid"][1];
+            properties.thermal_conductivity_liquid_0 =
+                db["properties"]["thermal_conductivity_liquid"][0];
+            properties.thermal_conductivity_liquid_T =
+                db["properties"]["thermal_conductivity_liquid"][1];
+            // Also expects a max temperature (vaporization temperature) for
+            // thermal conductivity calculations
+            properties.vaporization_temperature =
+                db["properties"]["vaporization_temperature"];
         }
         else
         {
-            properties.thermal_conductivity_0 =
+            properties.thermal_conductivity_solid_0 =
                 db["properties"]["thermal_conductivity"];
-            properties.thermal_conductivity_T = 0.0;
+            properties.thermal_conductivity_liquid_0 =
+                db["properties"]["thermal_conductivity"];
+            properties.thermal_conductivity_solid_T = 0.0;
+            properties.thermal_conductivity_liquid_T = 0.0;
+            // Default value for a max temperature (unused since
+            // thermal_conductivity_T = 0)
+            properties.vaporization_temperature = 5000.0;
         }
         properties.latent_heat = db["properties"]["latent_heat"];
         properties.solidus = db["properties"]["solidus"];

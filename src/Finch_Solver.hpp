@@ -44,11 +44,15 @@ class Solver
     double dt_;
     double solidus_;
     double liquidus_;
+    double inv_freezing_range_;
     double rho_cp_;
     double rho_Lf_by_dT_;
     double inv_dx2_;
-    double k_0_;
-    double k_T_;
+    double k_solid_0_;
+    double k_solid_T_;
+    double k_liquid_0_;
+    double k_liquid_T_;
+    double temp_max_;
 
     // heat source parameters
     double power_;
@@ -75,14 +79,20 @@ class Solver
 
         liquidus_ = db.properties.liquidus;
 
+        inv_freezing_range_ = 1.0 / ( liquidus_ - solidus_ );
+
+        temp_max_ = db.properties.vaporization_temperature;
+
         rho_cp_ = rho * cp;
 
         rho_Lf_by_dT_ = rho * Lf / ( liquidus_ - solidus_ );
 
         inv_dx2_ = 1.0 / ( dx * dx );
 
-        k_0_ = db.properties.thermal_conductivity_0;
-        k_T_ = db.properties.thermal_conductivity_T;
+        k_solid_0_ = db.properties.thermal_conductivity_solid_0;
+        k_solid_T_ = db.properties.thermal_conductivity_solid_T;
+        k_liquid_0_ = db.properties.thermal_conductivity_liquid_0;
+        k_liquid_T_ = db.properties.thermal_conductivity_liquid_T;
 
         // initialize beam position
         for ( std::size_t d = 0; d < 3; ++d )
@@ -151,16 +161,27 @@ class Solver
         const double temp_pz = T0_( i, j, k + 1, 0 );
         const double temp_nz = T0_( i, j, k - 1, 0 );
 
-        const double kappa_local = kappa_of_temperature( temp_local );
-        const double kappa_px = kappa_of_temperature( temp_px );
-        const double kappa_nx = kappa_of_temperature( temp_nx );
-        const double kappa_py = kappa_of_temperature( temp_py );
-        const double kappa_ny = kappa_of_temperature( temp_ny );
-        const double kappa_pz = kappa_of_temperature( temp_pz );
-        const double kappa_nz = kappa_of_temperature( temp_nz );
+        // Liquid fraction
+        const double liquid_fraction =
+            Kokkos::fmax( 1.0, Kokkos::fmin( 0.0, ( temp_local - solidus_ ) *
+                                                      inv_freezing_range_ ) );
+        const double kappa_local =
+            kappa_of_temperature( temp_local, liquid_fraction );
+        const double kappa_px =
+            kappa_of_temperature( temp_px, liquid_fraction );
+        const double kappa_nx =
+            kappa_of_temperature( temp_nx, liquid_fraction );
+        const double kappa_py =
+            kappa_of_temperature( temp_py, liquid_fraction );
+        const double kappa_ny =
+            kappa_of_temperature( temp_ny, liquid_fraction );
+        const double kappa_pz =
+            kappa_of_temperature( temp_pz, liquid_fraction );
+        const double kappa_nz =
+            kappa_of_temperature( temp_nz, liquid_fraction );
 
         double dt_by_rho_cp =
-            ( temp_local >= solidus_ && temp_local <= liquidus_ )
+            ( liquid_fraction >= 0.0 && liquid_fraction <= 1.0 )
                 ? dt_ / ( rho_cp_ + rho_Lf_by_dT_ )
                 : dt_ / ( rho_cp_ );
 
@@ -193,17 +214,28 @@ class Solver
         const double temp_pz = T0_( i, j, k + 1, 0 );
         const double temp_nz = T0_( i, j, k - 1, 0 );
 
-        const double kappa_local = kappa_of_temperature( temp_local );
-        const double kappa_px = kappa_of_temperature( temp_px );
-        const double kappa_nx = kappa_of_temperature( temp_nx );
-        const double kappa_py = kappa_of_temperature( temp_py );
-        const double kappa_ny = kappa_of_temperature( temp_ny );
-        const double kappa_pz = kappa_of_temperature( temp_pz );
-        const double kappa_nz = kappa_of_temperature( temp_nz );
+        // Liquid fraction
+        const double liquid_fraction =
+            Kokkos::fmax( 1.0, Kokkos::fmin( 0.0, ( temp_local - solidus_ ) *
+                                                      inv_freezing_range_ ) );
+        const double kappa_local =
+            kappa_of_temperature( temp_local, liquid_fraction );
+        const double kappa_px =
+            kappa_of_temperature( temp_px, liquid_fraction );
+        const double kappa_nx =
+            kappa_of_temperature( temp_nx, liquid_fraction );
+        const double kappa_py =
+            kappa_of_temperature( temp_py, liquid_fraction );
+        const double kappa_ny =
+            kappa_of_temperature( temp_ny, liquid_fraction );
+        const double kappa_pz =
+            kappa_of_temperature( temp_pz, liquid_fraction );
+        const double kappa_nz =
+            kappa_of_temperature( temp_nz, liquid_fraction );
 
         double dt_by_rho_cp =
-            dt_ / ( rho_cp_ + ( temp_local >= solidus_ ) *
-                                  ( temp_local <= liquidus_ ) * rho_Lf_by_dT_ );
+            dt_ / ( rho_cp_ + ( liquid_fraction >= 0.0 ) *
+                                  ( liquid_fraction <= 1.0 ) * rho_Lf_by_dT_ );
 
         const double laplacian_x = laplacian_k(
             temp_local, temp_px, temp_nx, kappa_local, kappa_px, kappa_nx );
@@ -219,11 +251,17 @@ class Solver
         T_( i, j, k, 0 ) = temp_local + rhs * dt_by_rho_cp;
     }
 
-    // Get temperature-dependent thermal conductivity
+    // Get temperature-dependent thermal conductivity, using liquid and solid
+    // values. Conductivity is capped at the value where temp_local = temp_max_
     KOKKOS_INLINE_FUNCTION
-    auto kappa_of_temperature( const double temp_local ) const
+    auto kappa_of_temperature( const double temp_local,
+                               const double liquid_fraction ) const
     {
-        return k_0_ + k_T_ * temp_local;
+        return ( 1.0 - liquid_fraction ) *
+                   ( k_solid_0_ + k_solid_T_ * temp_local ) +
+               liquid_fraction *
+                   ( k_liquid_0_ +
+                     k_liquid_T_ * Kokkos::fmin( temp_local, temp_max_ ) );
     }
 
     // Get harmonic average of two values
