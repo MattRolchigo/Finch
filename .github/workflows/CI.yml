@@ -35,7 +35,7 @@ jobs:
             cmake_build_type: 'Release'
             kokkos_ver: '4.1.00'
             json: External
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     container: ghcr.io/ecp-copa/ci-containers/${{ matrix.distro }}
     continue-on-error: ${{ matrix.distro == 'ubuntu:intel' }}
     steps:
