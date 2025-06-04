@@ -106,6 +106,7 @@ class Layer
         solidification_data_.update( grid, time );
     }
 
+    auto getSolidificationData() { return solidification_data_.get(); }
     // Append next layer's solidification data to input_solidification_data
     void appendSolidificationData(
         Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace>&
