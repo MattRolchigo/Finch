@@ -106,34 +106,39 @@ class Layer
         solidification_data_.update( grid, time );
     }
 
-    auto getSolidificationData() { return solidification_data_.get(); }
-
-    auto writeSolidificationData( MPI_Comm comm )
+    auto getSolidificationData( Grid<memory_space>& grid )
     {
-        return solidification_data_.write( comm );
+        return solidification_data_.get( grid );
     }
 
-    [[deprecated( "Use of getLowerSolidificationDataBounds() without a "
-                  "communicator is deprecated." )]] std::array<double, 3>
-    getLowerSolidificationDataBounds()
+    auto writeSolidificationData( Grid<memory_space>& grid, MPI_Comm comm )
     {
-        return solidification_data_.getLowerBounds( MPI_COMM_WORLD );
-    }
-    [[deprecated( "Use of getUpperSolidificationDataBounds() without a "
-                  "communicator is deprecated." )]] std::array<double, 3>
-    getUpperSolidificationDataBounds()
-    {
-        return solidification_data_.getUpperBounds( MPI_COMM_WORLD );
+        return solidification_data_.write( grid, comm );
     }
 
-    std::array<double, 3> getLowerSolidificationDataBounds( MPI_Comm comm )
-    {
-        return solidification_data_.getLowerBounds( comm );
-    }
-    std::array<double, 3> getUpperSolidificationDataBounds( MPI_Comm comm )
-    {
-        return solidification_data_.getUpperBounds( comm );
-    }
+    //    [[deprecated( "Use of getLowerSolidificationDataBounds() without a "
+    //                  "communicator is deprecated." )]] std::array<double, 3>
+    //    getLowerSolidificationDataBounds()
+    //    {
+    //        return solidification_data_.getLowerBounds( MPI_COMM_WORLD );
+    //    }
+    //    [[deprecated( "Use of getUpperSolidificationDataBounds() without a "
+    //                  "communicator is deprecated." )]] std::array<double, 3>
+    //    getUpperSolidificationDataBounds()
+    //    {
+    //        return solidification_data_.getUpperBounds( MPI_COMM_WORLD );
+    //    }
+    //
+    //    std::array<double, 3> getLowerSolidificationDataBounds( MPI_Comm comm
+    //    )
+    //    {
+    //        return solidification_data_.getLowerBounds( comm );
+    //    }
+    //    std::array<double, 3> getUpperSolidificationDataBounds( MPI_Comm comm
+    //    )
+    //    {
+    //        return solidification_data_.getUpperBounds( comm );
+    //    }
 };
 
 } // namespace Finch

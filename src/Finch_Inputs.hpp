@@ -104,6 +104,7 @@ struct Sampling
     std::string format;
     std::string directory_name = "solidification";
     bool enabled;
+    int fine_factor;
 };
 
 struct TimeMonitor
@@ -356,6 +357,8 @@ class Inputs
         if ( db.contains( "sampling" ) )
         {
             const std::string sampling_type = db["sampling"]["type"];
+            if ( db["sampling"].contains( "fine_factor" ) )
+                sampling.fine_factor = db["sampling"]["fine_factor"];
 
             if ( sampling_type == "solidification_data" )
             {
