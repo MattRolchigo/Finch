@@ -409,6 +409,9 @@ class SolidificationData
 
         // Create empty SRDF views based on count
         SRDF.template Make_Data_Views<device_space>( count_host( 0 ) );
+        // Make data mirrors on host
+        SRDF.template Make_Data_Mirrors<device_space, host_space>();
+
         // Get reference to SRDF views on host
         Stork::Structs::SRDF_Data<double, host_space>& data = SRDF.host_data;
 
