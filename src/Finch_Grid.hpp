@@ -135,8 +135,9 @@ class Grid
         // Note: this is an entirely separate array on purpose (no shallow copy)
         T0 = Cabana::Grid::createArray<double, memory_space>( name, layout );
 
-        // create halo
-        halo = createHalo( Cabana::Grid::FaceHaloPattern<3>(), halo_width, *T );
+        // create halo - requires second nearest neighbor comm for temperature
+        // data sampling on nodes
+        halo = createHalo( Cabana::Grid::NodeHaloPattern<3>(), halo_width, *T );
 
         // Size in x, y, z for each MPI rank, not including ghost nodes
         auto local_mesh = getLocalMesh();
