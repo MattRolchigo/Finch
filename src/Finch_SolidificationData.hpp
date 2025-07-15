@@ -62,12 +62,13 @@ class SolidificationData
     view_int count;
 
     int capacity;
-    double x_max, y_max, z_max;
+    double x_min_sampling, y_min_sampling, z_min_sampling, x_max_sampling,
+        y_max_sampling, z_max_sampling;
     int nx_solidification, ny_solidification, nz_solidification;
 
     view_int cellnum;
     view_double2D timesview, thermalsview;
-    //    view_int4D tm_view;
+    view_int4D tm_view;
 
   public:
     // Default constructor
@@ -95,36 +96,44 @@ class SolidificationData
             16 );
 
         auto local_mesh = grid.getLocalMesh();
+        auto local_grid = grid.getLocalGrid();
+        using entity_type = typename Grid<memory_space>::entity_type;
+
+        // Lower bounds of region considered for sampling
+        x_min_sampling = inputs.sampling.global_low_corner[0];
+        y_min_sampling = inputs.sampling.global_low_corner[1];
+        z_min_sampling = inputs.sampling.global_low_corner[2];
 
         // CA grid - store node data in halo regions in positive x,y,z, but if
         // at a global domain boundary, do not store boundary node data
-        x_max = inputs.space.global_high_corner[0];
-        y_max = inputs.space.global_high_corner[1];
-        z_max = inputs.space.global_high_corner[2];
-
         if ( std::abs( local_mesh.highCorner( Cabana::Grid::Own(), 0 ) -
-                       x_max ) < 1e-10 )
+                       inputs.space.global_high_corner[0] ) < 1e-10 )
             nx_solidification = grid.num_points_x;
         else
             nx_solidification = grid.num_points_x + 1;
         if ( std::abs( local_mesh.highCorner( Cabana::Grid::Own(), 1 ) -
-                       y_max ) < 1e-10 )
+                       inputs.space.global_high_corner[1] ) < 1e-10 )
             ny_solidification = grid.num_points_y;
         else
             ny_solidification = grid.num_points_y + 1;
         if ( std::abs( local_mesh.highCorner( Cabana::Grid::Own(), 2 ) -
-                       z_max ) < 1e-10 )
+                       inputs.space.global_high_corner[2] ) < 1e-10 )
             nz_solidification = grid.num_points_z;
         else
             nz_solidification = grid.num_points_z + 1;
-        //        auto layout =
-        //            Cabana::Grid::createArrayLayout( local_grid, 1,
-        //            entity_type() );
-        //        auto tm =
-        //            Cabana::Grid::createArray<int, memory_space>( "tm", layout
-        //            );
-        //        tm_view = tm->view();
-        //        Kokkos::deep_copy(tm_view, 0);
+        auto layout =
+            Cabana::Grid::createArrayLayout( local_grid, 1, entity_type() );
+        auto tm = Cabana::Grid::createArray<int, memory_space>( "tm", layout );
+
+        // Upper bounds of region considered for sampling
+        x_max_sampling = std::fmin( inputs.space.global_high_corner[0],
+                                    inputs.sampling.global_high_corner[0] );
+        y_max_sampling = std::fmin( inputs.space.global_high_corner[1],
+                                    inputs.sampling.global_high_corner[1] );
+        z_max_sampling = std::fmin( inputs.space.global_high_corner[2],
+                                    inputs.sampling.global_high_corner[2] );
+        tm_view = tm->view();
+        Kokkos::deep_copy( tm_view, 0 );
     }
 
     void updateEvents( Grid<memory_space>& grid, const double time )
@@ -134,9 +143,12 @@ class SolidificationData
         auto T0 = grid.getPreviousTemperature();
         auto local_mesh = grid.getLocalMesh();
         using entity_type = typename Grid<memory_space>::entity_type;
-        double x_max_ = x_max;
-        double y_max_ = y_max;
-        double z_max_ = z_max;
+        double x_min_sampling_ = x_min_sampling;
+        double y_min_sampling_ = y_min_sampling;
+        double z_min_sampling_ = z_min_sampling;
+        double x_max_sampling_ = x_max_sampling;
+        double y_max_sampling_ = y_max_sampling;
+        double z_max_sampling_ = z_max_sampling;
         double dt = dt_;
         int capacity_ = capacity;
         int ny_solidification_ = ny_solidification;
@@ -148,10 +160,13 @@ class SolidificationData
                 int idx[3] = { i, j, k };
                 local_mesh.coordinates( entity_type(), idx, pt );
                 // Loop over owned points, except for global x,y,z bound
-                if ( ( pt[0] < x_max_ ) && ( pt[1] < y_max_ ) &&
-                     ( pt[2] < z_max_ ) )
+                if ( ( pt[0] >= x_min_sampling_ ) &&
+                     ( pt[1] >= y_min_sampling_ ) &&
+                     ( pt[2] >= z_min_sampling_ ) &&
+                     ( pt[0] < x_max_sampling_ ) &&
+                     ( pt[1] < y_max_sampling_ ) &&
+                     ( pt[2] < z_max_sampling_ ) )
                 {
-                    //                    printf("i %d j %d k %d; x %f y %f z
                     //                    %f\n",i,j,k,pt[0],pt[1],pt[2]);
                     // Count number of vertices above the liquidus on this time
                     // step
@@ -170,8 +185,8 @@ class SolidificationData
                                                   neighbor_zn, 0 ) >= liquidus_;
                     }
 
-                    //                    if (T(i, j, k, 0) >= liquidus_)
-                    //                        tm_view(i, j, k, 0) = 1;
+                    if ( T( i, j, k, 0 ) >= liquidus_ )
+                        tm_view( i, j, k, 0 ) = 1;
                     // store previous, current temperature state if:
                     // - between 1 and 7 of the vertices were above the liquidus
                     // on either the previous or current time step
@@ -213,6 +228,17 @@ class SolidificationData
                                     neighbor_xn, neighbor_yn, neighbor_zn, 0 );
                                 thermalsview( counter, n_index + 8 ) = T(
                                     neighbor_xn, neighbor_yn, neighbor_zn, 0 );
+                                //                                if ((mpi_rank_
+                                //                                == 0) && (i ==
+                                //                                25) && (j ==
+                                //                                20))
+                                //                                    printf("Time
+                                //                                    %f temp at
+                                //                                    node %d is
+                                //                                    %f\n",time,n_index,T(neighbor_xn,
+                                //                                    neighbor_yn,
+                                //                                    neighbor_zn,
+                                //                                    0 ));
                             }
                         }
                     }
@@ -384,23 +410,20 @@ class SolidificationData
         // Create empty SRDF views based on count
         SRDF.template Make_Data_Views<device_space>( count_host( 0 ) );
         // Get reference to SRDF views on host
-        //        Stork::Structs::SRDF_Data<double, host_space>& data =
-        //        SRDF.host_data;
+        Stork::Structs::SRDF_Data<double, host_space>& data = SRDF.host_data;
 
         // Fill SRDF views from sorted Finch data
         for ( int n = 0; n < count_host( 0 ); n++ )
         {
-            SRDF.host_data.cellNum_view( n ) = std::get<0>( snapshots[n] );
+            data.cellNum_view( n ) = std::get<0>( snapshots[n] );
             //            int k = std::get<0>(snapshots[n]) % grid.num_points_z;
             //            if (k < 15)
             //                std::cout << "k = " << k << std::endl;
             const int old_list_pos = std::get<1>( snapshots[n] );
-            SRDF.host_data.times_view( 2 * n ) =
-                timesview_host( old_list_pos, 0 );
-            SRDF.host_data.times_view( 2 * n + 1 ) =
-                timesview_host( old_list_pos, 1 );
+            data.times_view( 2 * n ) = timesview_host( old_list_pos, 0 );
+            data.times_view( 2 * n + 1 ) = timesview_host( old_list_pos, 1 );
             for ( int vert = 0; vert < 16; vert++ )
-                SRDF.host_data.thermals_view( 16 * n + vert ) =
+                data.thermals_view( 16 * n + vert ) =
                     thermalsview_host( old_list_pos, vert );
         }
 

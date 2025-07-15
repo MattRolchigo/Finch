@@ -97,11 +97,10 @@ class Layer
         auto owned_space = grid.getIndexSpace();
         fd.solve( exec_space, owned_space, T, T0, beam_power, beam_pos );
 
-        // update boundaries
-        grid.updateBoundaries();
-
         // communicate halos
         grid.gather();
+        // update boundaries
+        grid.updateBoundaries();
 
         solidification_data_.update( grid, time );
     }
