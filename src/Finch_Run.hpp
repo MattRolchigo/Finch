@@ -108,9 +108,9 @@ class Layer
 
     auto getSolidificationData() { return solidification_data_.get(); }
 
-    auto writeSolidificationData( MPI_Comm comm )
+    auto writeSolidificationData( Sampling sampling_inputs, MPI_Comm comm )
     {
-        return solidification_data_.write( comm );
+        return solidification_data_.write( sampling_inputs, comm );
     }
 
     [[deprecated( "Use of getLowerSolidificationDataBounds() without a "

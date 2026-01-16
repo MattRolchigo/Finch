@@ -49,12 +49,10 @@ class SolidificationData
   private:
     // Needed for file output
     int mpi_rank_;
-    std::string folder_name_;
     double liquidus_;
     double dt_;
     double cell_size_;
     bool enabled_;
-    std::string format_;
 
     view_int count;
 
@@ -72,12 +70,10 @@ class SolidificationData
     // constructor
     SolidificationData( const Inputs& inputs, Grid<memory_space>& grid )
         : mpi_rank_( grid.comm_rank )
-        , folder_name_( inputs.sampling.directory_name )
         , liquidus_( inputs.properties.liquidus )
         , dt_( inputs.time.time_step )
         , cell_size_( inputs.space.cell_size )
         , enabled_( inputs.sampling.enabled )
-        , format_( inputs.sampling.format )
     {
         count = view_int( "count", 1 );
 
@@ -224,7 +220,7 @@ class SolidificationData
     }
 
     // Write the solidification data to separate files for each MPI rank
-    void write( MPI_Comm comm )
+    void write( Sampling sampling_inputs, MPI_Comm comm )
     {
         if ( !enabled_ )
         {
@@ -241,13 +237,14 @@ class SolidificationData
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), count );
 
         // create directory is not present, otherwise overwrite existing files
-        if ( mkdir( folder_name_.c_str(), 0777 ) != -1 )
+        if ( mkdir( sampling_inputs.directory_name.c_str(), 0777 ) != -1 )
         {
-            std::cout << "Creating directory: " << folder_name_ << std::endl;
+            std::cout << "Creating directory: "
+                      << sampling_inputs.directory_name << std::endl;
         }
 
         std::ofstream fout;
-        std::string filename( folder_name_ + "/data_" +
+        std::string filename( sampling_inputs.directory_name + "/data_" +
                               std::to_string( mpi_rank_ ) + ".csv" );
 
         fout.open( filename );
@@ -259,7 +256,7 @@ class SolidificationData
                  << events_host( n, 2 ) << "," << events_host( n, 3 ) << ","
                  << events_host( n, 4 ) << "," << events_host( n, 5 );
 
-            if ( format_ == "default" )
+            if ( sampling_inputs.format == "default" )
             {
                 fout << "," << events_host( n, 6 ) << "," << events_host( n, 7 )
                      << "," << events_host( n, 8 );
