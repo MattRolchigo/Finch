@@ -175,7 +175,7 @@ class Inputs
     // constructor for coupled run of Finch with ExaCA - inputs potentially
     // spread across both files
     Inputs( MPI_Comm comm, const std::string filename,
-            const int input_file_number )
+            const int input_file_number = 0 )
     {
         MPI_Comm_rank( comm, &comm_rank );
         MPI_Comm_size( comm, &comm_size );
