@@ -269,27 +269,24 @@ class Inputs
         return filename_s;
     }
 
-    void parseInputFile( const std::string filename )
-    {
-        // parse input file
-        std::ifstream db_stream( filename );
-        nlohmann::json db = nlohmann::json::parse( db_stream );
-        readInput( db );
-        write();
-    }
-
     void parseInputFile( const std::string filename,
-                         const int input_file_number )
+                         const int input_file_number = 0 )
     {
         // Input file is either a Finch input file or an ExaCA input file with a
         // Finch object
+        Info << "Parsing input file " << input_file_number << std::endl;
         std::ifstream input_data_stream( filename );
         nlohmann::json input_data_raw =
             nlohmann::json::parse( input_data_stream );
         if ( !input_data_raw.contains( "Finch" ) )
         {
-            // This is a Finch input file
-            readInput( input_data_raw );
+            // This is a Finch input file and should have all 5 sections
+            std::vector<bool> found_sections = readSections( input_data_raw );
+            if ( std::find( found_sections.begin(), found_sections.end(),
+                            false ) != found_sections.end() )
+                throw std::runtime_error(
+                    "Error: Missing top-level sections of Finch input file, "
+                    "see README for proper input file format" );
         }
         else
         {
@@ -302,54 +299,42 @@ class Inputs
             if ( !top_level_input_data.contains( "layers" ) )
             {
                 // All inputs should be present at the top level of the file
-                for ( int n = 0; n < num_inp_file_sections; n++ )
-                    readInputSection( n, top_level_input_data );
+                std::vector<bool> found_sections =
+                    readSections( top_level_input_data );
+                if ( std::find( found_sections.begin(), found_sections.end(),
+                                false ) != found_sections.end() )
+                    throw std::runtime_error(
+                        "Error: Missing top-level sections of Finch input "
+                        "file, see README for proper input file format" );
             }
             else
             {
+                // Check top level for inputs and parse
+                std::vector<bool> found_sections_top_level =
+                    readSections( top_level_input_data );
+                // Check individual layer level for inputs and parse
+                std::vector<bool> found_sections_layer_level = readSections(
+                    top_level_input_data["layers"][input_file_number] );
+                // Ensure each input was present at least once, warn about
+                // redundant inputs (layer level takes priority)
                 for ( int n = 0; n < num_inp_file_sections; n++ )
                 {
-                    // Check if the input is found at the top level and/or at
-                    // the individual layer level
-                    const bool found_top_level =
-                        ( top_level_input_data.contains(
-                            input_file_sections[n] ) );
-                    const bool found_layer_level =
-                        ( top_level_input_data["layers"][input_file_number]
-                              .contains( input_file_sections[n] ) );
-                    // Warn if redundant inputs are given, throw error if inputs
-                    // are missing
-                    if ( ( found_top_level ) && ( found_layer_level ) )
+                    if ( ( found_sections_top_level[n] ) &&
+                         ( found_sections_layer_level[n] ) )
                     {
                         Info << "Warning: Finch input object "
                              << input_file_sections[n]
-                             << " has multiples values given; values from "
+                             << " has multiple values given; values from "
                                 "`layers` object will be used"
                              << std::endl;
-                        // Parse data from aux file, overwriting redundant
-                        // inputs from top level file
-                        readInputSection(
-                            n,
-                            top_level_input_data["layers"][input_file_number] );
                     }
-                    else if ( ( !found_top_level ) && ( !found_layer_level ) )
+                    else if ( ( !found_sections_top_level[n] ) &&
+                              ( !found_sections_layer_level[n] ) )
                     {
                         std::string err_message = "Error: Finch input object " +
                                                   input_file_sections[n] +
                                                   " was not found";
                         throw std::runtime_error( err_message );
-                    }
-                    else if ( found_top_level )
-                    {
-                        // Parse data from top level input file
-                        readInputSection( n, top_level_input_data );
-                    }
-                    else if ( found_layer_level )
-                    {
-                        // Parse data from aux file
-                        readInputSection(
-                            n,
-                            top_level_input_data["layers"][input_file_number] );
                     }
                 }
             }
@@ -381,41 +366,37 @@ class Inputs
         time_monitor = TimeMonitor( comm, time );
     }
 
-    // Calls other read input functions to initialize variables
-    void readInput( nlohmann::json db )
+    // Calls other read input functions to initialize variables, returning a
+    // list of which sections were found
+    std::vector<bool> readSections( nlohmann::json db )
     {
-        readInput_Time( db );
-        readInput_Space( db );
-        readInput_Properties( db );
-        readInput_Source( db );
-        readInput_Sampling( db );
-    }
-
-    // Calls a specific read input function depending on n (could possibly be
-    // done with a function map)
-    void readInputSection( const int n, nlohmann::json db )
-    {
-        switch ( n )
+        std::vector<bool> found_sections( 5, false );
+        if ( db.contains( "time" ) )
         {
-        case 0:
             readInput_Time( db );
-            break;
-        case 1:
-            readInput_Space( db );
-            break;
-        case 2:
-            readInput_Properties( db );
-            break;
-        case 3:
-            readInput_Source( db );
-            break;
-        case 4:
-            readInput_Sampling( db );
-            break;
-        default:
-            Info << "Requested parsing of an invalid section of the Finch "
-                    "input file";
+            found_sections[0] = true;
         }
+        if ( db.contains( "space" ) )
+        {
+            readInput_Space( db );
+            found_sections[1] = true;
+        }
+        if ( db.contains( "properties" ) )
+        {
+            readInput_Properties( db );
+            found_sections[2] = true;
+        }
+        if ( db.contains( "source" ) )
+        {
+            readInput_Source( db );
+            found_sections[3] = true;
+        }
+        if ( db.contains( "sampling" ) )
+        {
+            readInput_Sampling( db );
+            found_sections[4] = true;
+        }
+        return found_sections;
     }
 
     void readInput_Time( nlohmann::json db )
