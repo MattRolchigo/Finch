@@ -373,33 +373,33 @@ class Inputs
         std::vector<bool> found_sections( 5, false );
         if ( db.contains( "time" ) )
         {
-            readInput_Time( db );
+            readInputTime( db );
             found_sections[0] = true;
         }
         if ( db.contains( "space" ) )
         {
-            readInput_Space( db );
+            readInputSpace( db );
             found_sections[1] = true;
         }
         if ( db.contains( "properties" ) )
         {
-            readInput_Properties( db );
+            readInputProperties( db );
             found_sections[2] = true;
         }
         if ( db.contains( "source" ) )
         {
-            readInput_Source( db );
+            readInputSource( db );
             found_sections[3] = true;
         }
         if ( db.contains( "sampling" ) )
         {
-            readInput_Sampling( db );
+            readInputSampling( db );
             found_sections[4] = true;
         }
         return found_sections;
     }
 
-    void readInput_Time( nlohmann::json db )
+    void readInputTime( nlohmann::json db )
     {
         // Read time components
         time.Co = db["time"]["Co"];
@@ -409,7 +409,7 @@ class Inputs
         time.monitor.total_steps = db["time"]["total_monitor_steps"];
     }
 
-    void readInput_Space( nlohmann::json db )
+    void readInputSpace( nlohmann::json db )
     {
         // Read space components
         space.initial_temperature = db["space"]["initial_temperature"];
@@ -439,7 +439,7 @@ class Inputs
         space.ranks_per_dim = ranks_per_dim;
     }
 
-    void readInput_Properties( nlohmann::json db )
+    void readInputProperties( nlohmann::json db )
     {
         // Read properties components
         properties.density = db["properties"]["density"];
@@ -451,7 +451,7 @@ class Inputs
         properties.liquidus = db["properties"]["liquidus"];
     }
 
-    void readInput_Source( nlohmann::json db )
+    void readInputSource( nlohmann::json db )
     {
         // Read heat source components
         source.absorption = db["source"]["absorption"];
@@ -464,7 +464,7 @@ class Inputs
         source.scan_path_file = db["source"]["scan_path_file"];
     }
 
-    void readInput_Sampling( nlohmann::json db )
+    void readInputSampling( nlohmann::json db )
     {
         // Read sampling components
         sampling.enabled = false;
