@@ -24,6 +24,7 @@
 #include <iostream>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -168,14 +169,18 @@ class Inputs
         MPI_Comm_rank( comm, &comm_rank );
         MPI_Comm_size( comm, &comm_size );
         std::string filename = getFilename( argc, argv );
-        parseInputFile( comm, filename );
+        parseInputFile( filename );
+        calcAuxiliaryProperties( comm );
     }
-    // constructor for coupled run of Finch with ExaCA
-    Inputs( MPI_Comm comm, std::string filename )
+    // constructor for coupled run of Finch with ExaCA - inputs potentially
+    // spread across both files
+    Inputs( MPI_Comm comm, const std::string filename,
+            const int input_file_number = 0 )
     {
         MPI_Comm_rank( comm, &comm_rank );
         MPI_Comm_size( comm, &comm_size );
-        parseInputFile( comm, filename );
+        parseInputFile( filename, input_file_number );
+        calcAuxiliaryProperties( comm );
     }
 
     void write()
@@ -264,12 +269,81 @@ class Inputs
         return filename_s;
     }
 
-    void parseInputFile( MPI_Comm comm, const std::string filename )
+    void parseInputFile( const std::string filename,
+                         const int input_file_number = 0 )
     {
-        readInput( filename );
-
+        // Input file is either a Finch input file or an ExaCA input file with a
+        // Finch object
+        Info << "Parsing input file " << input_file_number << std::endl;
+        std::ifstream input_data_stream( filename );
+        nlohmann::json input_data_raw =
+            nlohmann::json::parse( input_data_stream );
+        if ( !input_data_raw.contains( "Finch" ) )
+        {
+            // This is a Finch input file and should have all 5 sections
+            std::vector<bool> found_sections = readSections( input_data_raw );
+            if ( std::find( found_sections.begin(), found_sections.end(),
+                            false ) != found_sections.end() )
+                throw std::runtime_error(
+                    "Error: Missing top-level sections of Finch input file, "
+                    "see README for proper input file format" );
+        }
+        else
+        {
+            // This is an ExaCA input file - get data from the Finch object
+            nlohmann::json top_level_input_data = input_data_raw["Finch"];
+            // Sections to parse
+            std::vector<std::string> input_file_sections = {
+                "time", "space", "properties", "source", "sampling" };
+            const int num_inp_file_sections = input_file_sections.size();
+            if ( !top_level_input_data.contains( "layers" ) )
+            {
+                // All inputs should be present at the top level of the file
+                std::vector<bool> found_sections =
+                    readSections( top_level_input_data );
+                if ( std::find( found_sections.begin(), found_sections.end(),
+                                false ) != found_sections.end() )
+                    throw std::runtime_error(
+                        "Error: Missing top-level sections of Finch input "
+                        "file, see README for proper input file format" );
+            }
+            else
+            {
+                // Check top level for inputs and parse
+                std::vector<bool> found_sections_top_level =
+                    readSections( top_level_input_data );
+                // Check individual layer level for inputs and parse
+                std::vector<bool> found_sections_layer_level = readSections(
+                    top_level_input_data["layers"][input_file_number] );
+                // Ensure each input was present at least once, warn about
+                // redundant inputs (layer level takes priority)
+                for ( int n = 0; n < num_inp_file_sections; n++ )
+                {
+                    if ( ( found_sections_top_level[n] ) &&
+                         ( found_sections_layer_level[n] ) )
+                    {
+                        Info << "Warning: Finch input object "
+                             << input_file_sections[n]
+                             << " has multiple values given; values from "
+                                "`layers` object will be used"
+                             << std::endl;
+                    }
+                    else if ( ( !found_sections_top_level[n] ) &&
+                              ( !found_sections_layer_level[n] ) )
+                    {
+                        std::string err_message = "Error: Finch input object " +
+                                                  input_file_sections[n] +
+                                                  " was not found";
+                        throw std::runtime_error( err_message );
+                    }
+                }
+            }
+        }
         write();
+    }
 
+    void calcAuxiliaryProperties( MPI_Comm comm )
+    {
         // create auxiliary properties
         properties.thermal_diffusivity =
             ( properties.thermal_conductivity ) /
@@ -292,19 +366,51 @@ class Inputs
         time_monitor = TimeMonitor( comm, time );
     }
 
-    void readInput( const std::string filename )
+    // Calls other read input functions to initialize variables, returning a
+    // list of which sections were found
+    std::vector<bool> readSections( nlohmann::json db )
     {
-        // parse input file
-        std::ifstream db_stream( filename );
-        nlohmann::json db = nlohmann::json::parse( db_stream );
+        std::vector<bool> found_sections( 5, false );
+        if ( db.contains( "time" ) )
+        {
+            readInputTime( db );
+            found_sections[0] = true;
+        }
+        if ( db.contains( "space" ) )
+        {
+            readInputSpace( db );
+            found_sections[1] = true;
+        }
+        if ( db.contains( "properties" ) )
+        {
+            readInputProperties( db );
+            found_sections[2] = true;
+        }
+        if ( db.contains( "source" ) )
+        {
+            readInputSource( db );
+            found_sections[3] = true;
+        }
+        if ( db.contains( "sampling" ) )
+        {
+            readInputSampling( db );
+            found_sections[4] = true;
+        }
+        return found_sections;
+    }
 
+    void readInputTime( nlohmann::json db )
+    {
         // Read time components
         time.Co = db["time"]["Co"];
         time.start_time = db["time"]["start_time"];
         time.end_time = db["time"]["end_time"];
         time.output.total_steps = db["time"]["total_output_steps"];
         time.monitor.total_steps = db["time"]["total_monitor_steps"];
+    }
 
+    void readInputSpace( nlohmann::json db )
+    {
         // Read space components
         space.initial_temperature = db["space"]["initial_temperature"];
         space.cell_size = db["space"]["cell_size"];
@@ -312,10 +418,10 @@ class Inputs
         space.global_high_corner = db["space"]["global_high_corner"];
 
         /*
-          Default block partitioner. This relies on MPI_Cart_create to
-          balance the number of ranks in each direction. This partitioning
-          is best only in the global mesh is a uniform cube.
-        */
+         Default block partitioner. This relies on MPI_Cart_create to
+         balance the number of ranks in each direction. This partitioning
+         is best only in the global mesh is a uniform cube.
+         */
         std::array<int, 3> default_ranks_per_dim = { 0, 0, 0 };
 
         std::array<int, 3> ranks_per_dim = default_ranks_per_dim;
@@ -331,7 +437,10 @@ class Inputs
         }
 
         space.ranks_per_dim = ranks_per_dim;
+    }
 
+    void readInputProperties( nlohmann::json db )
+    {
         // Read properties components
         properties.density = db["properties"]["density"];
         properties.specific_heat = db["properties"]["specific_heat"];
@@ -340,7 +449,10 @@ class Inputs
         properties.latent_heat = db["properties"]["latent_heat"];
         properties.solidus = db["properties"]["solidus"];
         properties.liquidus = db["properties"]["liquidus"];
+    }
 
+    void readInputSource( nlohmann::json db )
+    {
         // Read heat source components
         source.absorption = db["source"]["absorption"];
         source.two_sigma = db["source"]["two_sigma"];
@@ -350,7 +462,10 @@ class Inputs
         source.two_sigma[2] = fabs( source.two_sigma[2] );
 
         source.scan_path_file = db["source"]["scan_path_file"];
+    }
 
+    void readInputSampling( nlohmann::json db )
+    {
         // Read sampling components
         sampling.enabled = false;
         if ( db.contains( "sampling" ) )

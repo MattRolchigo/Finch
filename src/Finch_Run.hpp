@@ -107,6 +107,50 @@ class Layer
     }
 
     auto getSolidificationData() { return solidification_data_.get(); }
+    // Append next layer's solidification data to input_solidification_data
+    void appendSolidificationData(
+        Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace>&
+            input_solidification_data,
+        std::vector<int>& first_value_finch, std::vector<int>& last_value_finch,
+        int finch_file_num, const int num_finch_simulations )
+    {
+        // Time-temperature history from the Finch simulation performed for this
+        // layer
+        auto new_layer_data = solidification_data_.get();
+        // Number of events and components in new layer time-temperature history
+        const int events_this_layer = new_layer_data.extent( 0 );
+        const int n_cmpts = new_layer_data.extent( 1 );
+        // Number of events in currently stored time-temperature history-
+        // first_value_finch provides offset from data stored for previous
+        // layers if performing more than 1 finch simulation at a time
+        int events_prev_layers;
+        if ( ( finch_file_num == 0 ) || ( num_finch_simulations == 1 ) )
+        {
+            first_value_finch[finch_file_num] = 0;
+            events_prev_layers = 0;
+        }
+        else
+        {
+            first_value_finch[finch_file_num] =
+                last_value_finch[finch_file_num - 1];
+            events_prev_layers = input_solidification_data.extent( 0 );
+        }
+        // Resize input_solidification_data to accommodate both any events
+        // stored from previous layers and the events calculated from simulation
+        // of this layer
+        Kokkos::resize( input_solidification_data,
+                        events_prev_layers + events_this_layer, n_cmpts );
+        // Copy this layer's data into the return view
+        for ( int i = 0; i < events_this_layer; i++ )
+            for ( int j = 0; j < n_cmpts; j++ )
+                input_solidification_data(
+                    first_value_finch[finch_file_num] + i, j ) =
+                    new_layer_data( i, j );
+        // Set last_value_finch to bound the indices with time-temperature
+        // history data for this layer
+        last_value_finch[finch_file_num] =
+            events_prev_layers + events_this_layer;
+    }
 
     auto writeSolidificationData( Sampling sampling_inputs, MPI_Comm comm )
     {
