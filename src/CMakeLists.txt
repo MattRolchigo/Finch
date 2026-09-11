@@ -1,8 +1,5 @@
 configure_file(Finch_Core_Config.hpp.cmakein Finch_Core_Config.hpp)
 
-if( Finch_ENABLE_STORK )
-  find_package(Stork REQUIRED)
-endif()
 file(GLOB CORE_HEADERS GLOB *.hpp)
 file(GLOB CORE_BEAM_HEADERS MovingBeam/*.hpp)
 file(GLOB CORE_SOURCE *.cpp MovingBeam/*.cpp)

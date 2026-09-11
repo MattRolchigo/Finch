@@ -491,12 +491,6 @@ class SolidificationData
         for ( int n = 0; n < snapshot_count_host( 0 ); n++ )
         {
             data.cellNum_view( n ) = std::get<0>( snapshots[n] );
-            int i = ( data.cellNum_view( n ) /
-                      ( header.local_knum() * header.local_jnum() ) );
-            int j = ( ( data.cellNum_view( n ) / header.local_knum() ) %
-                      header.local_jnum() );
-            int k = ( data.cellNum_view( n ) % header.local_knum() );
-
             const int old_list_pos = std::get<1>( snapshots[n] );
             data.times_view( 2 * n ) = timesview_host( old_list_pos, 0 );
             data.times_view( 2 * n + 1 ) = timesview_host( old_list_pos, 1 );

@@ -116,38 +116,18 @@ class Layer
                                          write_data );
     }
 
-    [[deprecated( "Use of getLowerSolidificationDataBounds() without a "
-                  "communicator is deprecated." )]] std::array<double, 3>
-    getLowerSolidificationDataBounds()
-    {
-        return solidification_data_.getLowerBounds( MPI_COMM_WORLD );
-    }
-    [[deprecated( "Use of getUpperSolidificationDataBounds() without a "
-                  "communicator is deprecated." )]] std::array<double, 3>
-    getUpperSolidificationDataBounds()
-    {
-        return solidification_data_.getUpperBounds( MPI_COMM_WORLD );
-    }
-
-    std::array<double, 3> getLowerSolidificationDataBounds( MPI_Comm comm )
-    {
-        return solidification_data_.getLowerBounds( comm );
-    }
-    std::array<double, 3> getUpperSolidificationDataBounds( MPI_Comm comm )
-    {
-        return solidification_data_.getUpperBounds( comm );
-    }
-
     // Append next layer's solidification data to input_solidification_data
     void appendSolidificationData(
         Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace>&
             input_solidification_data,
+        MPI_Comm comm, Grid<MemorySpace> grid, Sampling sampling_inputs,
         std::vector<int>& first_value_finch, std::vector<int>& last_value_finch,
         int finch_file_num, const int num_finch_simulations )
     {
         // Time-temperature history from the Finch simulation performed for this
         // layer
-        auto new_layer_data = solidification_data_.get();
+        auto new_layer_data =
+            solidification_data_.get( grid, comm, sampling_inputs, false );
         // Number of events and components in new layer time-temperature history
         const int events_this_layer = new_layer_data.extent( 0 );
         const int n_cmpts = new_layer_data.extent( 1 );
@@ -189,29 +169,27 @@ class Layer
         return solidification_data_.write( sampling_inputs, grid, comm );
     }
 
-    //    [[deprecated( "Use of getLowerSolidificationDataBounds() without a "
-    //                  "communicator is deprecated." )]] std::array<double, 3>
-    //    getLowerSolidificationDataBounds()
-    //    {
-    //        return solidification_data_.getLowerBounds( MPI_COMM_WORLD );
-    //    }
-    //    [[deprecated( "Use of getUpperSolidificationDataBounds() without a "
-    //                  "communicator is deprecated." )]] std::array<double, 3>
-    //    getUpperSolidificationDataBounds()
-    //    {
-    //        return solidification_data_.getUpperBounds( MPI_COMM_WORLD );
-    //    }
-    //
-    //    std::array<double, 3> getLowerSolidificationDataBounds( MPI_Comm comm
-    //    )
-    //    {
-    //        return solidification_data_.getLowerBounds( comm );
-    //    }
-    //    std::array<double, 3> getUpperSolidificationDataBounds( MPI_Comm comm
-    //    )
-    //    {
-    //        return solidification_data_.getUpperBounds( comm );
-    //    }
+    [[deprecated( "Use of getLowerSolidificationDataBounds() without a "
+                  "communicator is deprecated." )]] std::array<double, 3>
+    getLowerSolidificationDataBounds()
+    {
+        return solidification_data_.getLowerBounds( MPI_COMM_WORLD );
+    }
+    [[deprecated( "Use of getUpperSolidificationDataBounds() without a "
+                  "communicator is deprecated." )]] std::array<double, 3>
+    getUpperSolidificationDataBounds()
+    {
+        return solidification_data_.getUpperBounds( MPI_COMM_WORLD );
+    }
+
+    std::array<double, 3> getLowerSolidificationDataBounds( MPI_Comm comm )
+    {
+        return solidification_data_.getLowerBounds( comm );
+    }
+    std::array<double, 3> getUpperSolidificationDataBounds( MPI_Comm comm )
+    {
+        return solidification_data_.getUpperBounds( comm );
+    }
 };
 
 } // namespace Finch
